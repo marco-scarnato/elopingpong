@@ -1,49 +1,53 @@
+-- Enable UUID extension
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
 -- Create Players table
 CREATE TABLE IF NOT EXISTS players (
-    id SERIAL PRIMARY KEY,
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name VARCHAR(100) NOT NULL UNIQUE,
     bu VARCHAR(50) NOT NULL,
     password VARCHAR(255),
     role VARCHAR(20) DEFAULT 'player',
-    score_11 INTEGER DEFAULT 1000,
     score_21 INTEGER DEFAULT 1000
 );
 
--- Create Teams table
+-- Create Teams table (auto-created when first doubles match is played)
 CREATE TABLE IF NOT EXISTS teams (
-    id SERIAL PRIMARY KEY,
-    player1_id INTEGER REFERENCES players(id),
-    player2_id INTEGER REFERENCES players(id),
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    player1_id UUID NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+    player2_id UUID NOT NULL REFERENCES players(id) ON DELETE CASCADE,
     score_21 INTEGER DEFAULT 1000,
-    team_name VARCHAR(100)
+    UNIQUE(player1_id, player2_id)
 );
 
--- Create Matches table
+-- Create Matches table (singles only)
 CREATE TABLE IF NOT EXISTS matches (
-    id SERIAL PRIMARY KEY,
-    creator_id INTEGER REFERENCES players(id),
-    opponent_id INTEGER REFERENCES players(id),
-    winner_id INTEGER REFERENCES players(id),
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    creator_id UUID NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+    opponent_id UUID NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+    winner_id UUID REFERENCES players(id) ON DELETE SET NULL,
     creator_score INTEGER NOT NULL,
     opponent_score INTEGER NOT NULL,
-    match_type VARCHAR(2) NOT NULL, -- '11' or '21'
-    status VARCHAR(20) DEFAULT 'pending', -- 'pending', 'verified', 'rejected'
+    status VARCHAR(20) DEFAULT 'verified',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     verified_at TIMESTAMP
 );
 
--- Seed Players
-INSERT INTO players (name, bu, role, score_11, score_21, password) VALUES 
-('Admin', 'Management', 'admin', 1000, 1000, 'adminpassword'),
-('Marco S.', 'Eng', 'player', 1250, 1300, NULL),
-('Luca R.', 'HR', 'player', 1100, 1050, NULL),
-('Sara B.', 'Sales', 'player', 1150, 1200, NULL),
-('Marta G.', 'Eng', 'player', 1050, 1100, NULL),
-('Andrea V.', 'Marketing', 'player', 1000, 1000, NULL),
-('Paolo F.', 'Sales', 'player', 1080, 1040, NULL)
-ON CONFLICT (name) DO NOTHING;
+-- Create Team Matches table (doubles)
+CREATE TABLE IF NOT EXISTS team_matches (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    team_id UUID NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+    opponent_team_id UUID NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+    team_score INTEGER NOT NULL,
+    opponent_score INTEGER NOT NULL,
+    winner_id UUID REFERENCES teams(id) ON DELETE SET NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 
--- Seed Teams (using subqueries to get IDs based on names for reliability)
-INSERT INTO teams (player1_id, player2_id, score_21, team_name) VALUES 
-((SELECT id FROM players WHERE name = 'Marco S.'), (SELECT id FROM players WHERE name = 'Luca R.'), 1200, 'The Smashers'),
-((SELECT id FROM players WHERE name = 'Sara B.'), (SELECT id FROM players WHERE name = 'Marta G.'), 1150, 'Ping Kings');
+-- Index for fast team lookups
+CREATE INDEX IF NOT EXISTS idx_teams_players ON teams(player1_id, player2_id);
+
+-- Seed Admin only
+INSERT INTO players (name, bu, role, score_21, password) VALUES 
+('Admin', 'Management', 'admin', 1000, 'adminpassword')
+ON CONFLICT (name) DO NOTHING;
